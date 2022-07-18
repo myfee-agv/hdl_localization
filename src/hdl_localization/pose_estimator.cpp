@@ -22,9 +22,9 @@ PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registratio
   last_observation.block<3, 1>(0, 3) = pos;
 
   process_noise = Eigen::MatrixXf::Identity(16, 16);
-  process_noise.middleRows(0, 3) *= 1.0;
-  process_noise.middleRows(3, 3) *= 1.0;
-  process_noise.middleRows(6, 4) *= 0.5;
+  process_noise.middleRows(0, 3) *= .25;
+  process_noise.middleRows(3, 3) *= .25;
+  process_noise.middleRows(6, 4) *= 0.1;
   process_noise.middleRows(10, 3) *= 1e-6;
   process_noise.middleRows(13, 3) *= 1e-6;
 
