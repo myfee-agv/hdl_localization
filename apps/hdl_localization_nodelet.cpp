@@ -39,7 +39,7 @@ class HdlLocalizationNodelet : public nodelet::Nodelet {
 public:
   using PointT = pcl::PointXYZI;
 
-  HdlLocalizationNodelet() : tf_buffer(), tf_listener(tf_buffer) {}
+  HdlLocalizationNodelet() : tf_buffer(), tf_listener(tf_buffer), use_floor_filter(false) {}
   virtual ~HdlLocalizationNodelet() {}
 
   void onInit() override {
@@ -51,6 +51,7 @@ public:
 
     robot_odom_frame_id = private_nh.param<std::string>("robot_odom_frame_id", "robot_odom");
     odom_child_frame_id = private_nh.param<std::string>("odom_child_frame_id", "base_link");
+    use_floor_filter = private_nh.param<bool>("filter_floor", false);
 
     use_imu = private_nh.param<bool>("use_imu", true);
     invert_acc = private_nh.param<bool>("invert_acc", false);
@@ -147,7 +148,7 @@ private:
     downsample_filter = voxelgrid;
 
     // filter the floor
-    if (private_nh.param<bool>("filter_floor", true)) {
+    if (use_floor_filter) {
       filter_height_min = private_nh.param<float>("filter_height_min", 0.0);
       filter_height_max = private_nh.param<float>("filter_height_max", 100.0);
       boost::shared_ptr<pcl::PassThrough<PointT>> pass(new pcl::PassThrough<PointT>());
@@ -389,8 +390,10 @@ private:
     pcl::PointCloud<PointT>::Ptr filtered(new pcl::PointCloud<PointT>());
     downsample_filter->setInputCloud(cloud);
     downsample_filter->filter(*filtered);
-    passthrough_filter->setInputCloud(filtered);
-    passthrough_filter->filter(*filtered);
+    if (use_floor_filter) {
+        passthrough_filter->setInputCloud(filtered);
+        passthrough_filter->filter(*filtered);
+    }
     filtered->header = cloud->header;
 
     return filtered;
@@ -535,6 +538,7 @@ private:
   pcl::Registration<PointT, PointT>::Ptr registration;
   float filter_height_min;
   float filter_height_max;
+  bool use_floor_filter;
 
   // pose estimator
   std::mutex pose_estimator_mutex;
