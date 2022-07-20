@@ -19,6 +19,17 @@ namespace hdl_localization {
 
 class PoseSystem;
 class OdomSystem;
+struct ProcessNoise{
+  double pxyz;
+  double vxyz;
+  double qwxyz;
+  double acc_xyz;
+  double gyro_xyz;
+};
+struct MeasurementNoise{
+  double xyz;
+  double qwxyz;
+};
 
 /**
  * @brief scan matching-based pose estimator
@@ -35,7 +46,7 @@ public:
    * @param quat                initial orientation
    * @param cool_time_duration  during "cool time", prediction is not performed
    */
-  PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const ros::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, double cool_time_duration = 1.0);
+  PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const ros::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, MeasurementNoise measurement_noise_param, ProcessNoise process_noise_param, double cool_time_duration = 1.0);
   ~PoseEstimator();
 
   /**

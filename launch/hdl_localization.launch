@@ -63,6 +63,18 @@
       <param name="init_ori_y" value="0.0" />
       <param name="init_ori_z" value="0.0" />
 
+      <!-- UKF noise parameters -->
+      <!-- px, py, pz, vx, vy, vz, qw, qx, qy, qz, acc_bias_x, acc_bias_y, acc_bias_z, gyro_bias_x, gyro_bias_y, gyro_bias_z-->
+    
+      <param name="process_noise_pxyz" value="0.25" />
+      <param name="process_noise_vxyz" value="0.25" />
+      <param name="process_noise_qwxyz" value="0.1" />
+      <param name="process_noise_acc_xyz" value="1e-6" />
+      <param name="process_noise_gyro_xyz" value="1e-6" />
+
+      <param name="measurement_noise_xyz" value="0.1" />
+      <param name="measurement_noise_qwxyz" value="0.1" />
+
       <param name="use_global_localization" value="$(arg use_global_localization)" />
     </node>
 

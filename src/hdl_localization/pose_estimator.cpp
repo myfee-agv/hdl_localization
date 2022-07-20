@@ -15,22 +15,22 @@ namespace hdl_localization {
  * @param quat                initial orientation
  * @param cool_time_duration  during "cool time", prediction is not performed
  */
-PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const ros::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, double cool_time_duration)
+PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const ros::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, MeasurementNoise measurement_noise_param, ProcessNoise process_noise_param, double cool_time_duration)
     : init_stamp(stamp), registration(registration), cool_time_duration(cool_time_duration) {
   last_observation = Eigen::Matrix4f::Identity();
   last_observation.block<3, 3>(0, 0) = quat.toRotationMatrix();
   last_observation.block<3, 1>(0, 3) = pos;
 
   process_noise = Eigen::MatrixXf::Identity(16, 16);
-  process_noise.middleRows(0, 3) *= 0.25;
-  process_noise.middleRows(3, 3) *= 0.25;
-  process_noise.middleRows(6, 4) *= 0.1;
-  process_noise.middleRows(10, 3) *= 1e-6;
-  process_noise.middleRows(13, 3) *= 1e-6;
+  process_noise.middleRows(0, 3) *= process_noise_param.pxyz;
+  process_noise.middleRows(3, 3) *= process_noise_param.vxyz;
+  process_noise.middleRows(6, 4) *= process_noise_param.qwxyz;
+  process_noise.middleRows(10, 3) *= process_noise_param.acc_xyz;
+  process_noise.middleRows(13, 3) *= process_noise_param.gyro_xyz;
 
   Eigen::MatrixXf measurement_noise = Eigen::MatrixXf::Identity(7, 7);
-  measurement_noise.middleRows(0, 3) *= 0.05;
-  measurement_noise.middleRows(3, 4) *= 0.001;
+  measurement_noise.middleRows(0, 3) *= measurement_noise_param.xyz;
+  measurement_noise.middleRows(3, 4) *= measurement_noise_param.qwxyz;
 
   Eigen::VectorXf mean(16);
   mean.middleRows(0, 3) = pos;

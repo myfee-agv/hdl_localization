@@ -169,18 +169,26 @@ private:
     relocalizing = false;
     delta_estimater.reset(new DeltaEstimater(create_registration()));
 
+    process_noise.pxyz = private_nh.param<double>("process_noise_pxyz", 0.25);
+    process_noise.vxyz = private_nh.param<double>("process_noise_vxyz", 0.25);
+    process_noise.qwxyz = private_nh.param<double>("process_noise_qwxyz", 0.1);
+    process_noise.acc_xyz = private_nh.param<double>("process_noise_acc_xyz", 1e-6);
+    process_noise.gyro_xyz = private_nh.param<double>("process_noise_gyro_xyz", 1e-6);
+
+    measurement_noise.xyz = private_nh.param<double>("measurement_noise_xyz", 0.1);
+    measurement_noise.qwxyz = private_nh.param<double>("measurement_noise_qwxyz", 0.1);
+
+
     // initialize pose estimator
     if(private_nh.param<bool>("specify_init_pose", true)) {
       NODELET_INFO("initialize pose estimator with specified parameters!!");
       pose_estimator.reset(new hdl_localization::PoseEstimator(registration,
         ros::Time::now(),
         Eigen::Vector3f(private_nh.param<double>("init_pos_x", 0.0), private_nh.param<double>("init_pos_y", 0.0), private_nh.param<double>("init_pos_z", 0.0)),
-        Eigen::Quaternionf(
-          private_nh.param<double>("init_ori_w", 1.0),
-          private_nh.param<double>("init_ori_x", 0.0),
-          private_nh.param<double>("init_ori_y", 0.0),
-          private_nh.param<double>("init_ori_z", 0.0)),
-        private_nh.param<double>("cool_time_duration", 0.5)));
+        Eigen::Quaternionf(private_nh.param<double>("init_ori_w", 1.0), private_nh.param<double>("init_ori_x", 0.0), private_nh.param<double>("init_ori_y", 0.0), private_nh.param<double>("init_ori_z", 0.0)),
+        measurement_noise, process_noise,
+        private_nh.param<double>("cool_time_duration", 0.5)
+      ));
     }
   }
 
@@ -356,6 +364,7 @@ private:
       ros::Time::now(),
       pose.translation(),
       Eigen::Quaternionf(pose.linear()),
+      measurement_noise, process_noise,
       private_nh.param<double>("cool_time_duration", 0.5)));
 
     relocalizing = false;
@@ -378,6 +387,7 @@ private:
             ros::Time::now(),
             Eigen::Vector3f(p.x, p.y, p.z),
             Eigen::Quaternionf(q.w, q.x, q.y, q.z),
+            measurement_noise, process_noise,
             private_nh.param<double>("cool_time_duration", 0.5))
     );
   }
@@ -563,6 +573,10 @@ private:
   // pose estimator
   std::mutex pose_estimator_mutex;
   std::unique_ptr<hdl_localization::PoseEstimator> pose_estimator;
+
+  // noise params
+  ProcessNoise process_noise;
+  MeasurementNoise measurement_noise;
 
   // global localization
   bool use_global_localization;
