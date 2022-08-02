@@ -71,13 +71,16 @@ public:
     Vector3t g(0.0f, 0.0f, 9.80665f);
     Vector3t acc_ = raw_acc - acc_bias;
     Vector3t acc = qt * acc_;
-    next_state.middleRows(3, 3) = vt + (acc - g) * dt;
-//     next_state.middleRows(3, 3) = vt; // + (acc - g) * dt;		// acceleration didn't contribute to accuracy due to large noise
+//    next_state.middleRows(3, 3) = vt + (acc - g) * dt;
+     next_state.middleRows(3, 3) = vt;		// acceleration didn't contribute to accuracy due to large noise
 
     // orientation
     Vector3t gyro = raw_gyro - gyro_bias;
-    Quaterniont dq(1, gyro[0] * dt / 2, gyro[1] * dt / 2, gyro[2] * dt / 2);
+    Quaterniont dq;
+    dq = Eigen::AngleAxisf(gyro[2] * dt / 2.0, Eigen::Vector3f::UnitZ());
     dq.normalize();
+//    Quaterniont dq(1, gyro[0] * dt / 2, gyro[1] * dt / 2, gyro[2] * dt / 2);
+//    dq.normalize();
     Quaterniont qt_ = (qt * dq).normalized();
     next_state.middleRows(6, 4) << qt_.w(), qt_.x(), qt_.y(), qt_.z();
 
