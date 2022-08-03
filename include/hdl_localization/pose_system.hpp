@@ -16,9 +16,11 @@ public:
   typedef Eigen::Matrix<T, 4, 4> Matrix4t;
   typedef Eigen::Matrix<T, Eigen::Dynamic, 1> VectorXt;
   typedef Eigen::Quaternion<T> Quaterniont;
+  typedef Eigen::AngleAxis<T> AngleAxist;
 public:
   PoseSystem() {
     dt = 0.01;
+    enable_agv_mode = true;
   }
 
   // system equation (without input)
@@ -53,40 +55,62 @@ public:
   VectorXt f(const VectorXt& state, const VectorXt& control) const {
     VectorXt next_state(16);
 
-    Vector3t pt = state.middleRows(0, 3);
-    Vector3t vt = state.middleRows(3, 3);
+    // read the current state and controls
+    Vector3t acc_bias = state.middleRows(10, 3);
+    Vector3t gyro_bias = state.middleRows(13, 3);
+    Vector3t raw_acc = control.middleRows(0, 3);
+    Vector3t raw_gyro = control.middleRows(3, 3);
+    Vector3t gyro = raw_gyro - gyro_bias;
+
+    // current orientation
     Quaterniont qt(state[6], state[7], state[8], state[9]);
     qt.normalize();
 
-    Vector3t acc_bias = state.middleRows(10, 3);
-    Vector3t gyro_bias = state.middleRows(13, 3);
+    // if the AGV mode is enabled, propagate only 2D data with XYZ position
+    // (Z is needed to align scans properly with the floor)
+    if(enable_agv_mode){
 
-    Vector3t raw_acc = control.middleRows(0, 3);
-    Vector3t raw_gyro = control.middleRows(3, 3);
+        Vector3t pt = state.middleRows(0, 3);
+        Vector3t vt(state[3], state[4], 0.0f);
 
-    // position
-    next_state.middleRows(0, 3) = pt + vt * dt;  //
+        // propagate the position
+        next_state.middleRows(0, 3) = pt + vt * dt;
 
-    // velocity
-    Vector3t g(0.0f, 0.0f, 9.80665f);
-    Vector3t acc_ = raw_acc - acc_bias;
-    Vector3t acc = qt * acc_;
-//    next_state.middleRows(3, 3) = vt + (acc - g) * dt;
-     next_state.middleRows(3, 3) = vt;		// acceleration didn't contribute to accuracy due to large noise
+        // propagate the (xy-only) linear velocities
+        next_state.middleRows(3, 3) = vt;   // acceleration didn't contribute to accuracy due to large noise
 
-    // orientation
-    Vector3t gyro = raw_gyro - gyro_bias;
-    Quaterniont dq;
-    dq = Eigen::AngleAxisf(gyro[2] * dt / 2.0, Eigen::Vector3f::UnitZ());
-    dq.normalize();
-//    Quaterniont dq(1, gyro[0] * dt / 2, gyro[1] * dt / 2, gyro[2] * dt / 2);
-//    dq.normalize();
-    Quaterniont qt_ = (qt * dq).normalized();
-    next_state.middleRows(6, 4) << qt_.w(), qt_.x(), qt_.y(), qt_.z();
+        // propagate the orientation based on gyro measurements
+        // note: propagating only yaw-velocity introduces significantly decreased performance
+        // Quaterniont dq;
+        // dq = AngleAxist(gyro[2] * dt / 2.0, Vector3t::UnitZ());
+        Quaterniont dq(1, gyro[0] * dt / 2, gyro[1] * dt / 2, gyro[2] * dt / 2);
+        dq.normalize();
+        Quaterniont qt_ = (qt * dq).normalized();
+        next_state.middleRows(6, 4) << qt_.w(), qt_.x(), qt_.y(), qt_.z();
 
-    next_state.middleRows(10, 3) = state.middleRows(10, 3);  // constant bias on acceleration
-    next_state.middleRows(13, 3) = state.middleRows(13, 3);  // constant bias on angular velocity
+    } else {
+        Vector3t pt = state.middleRows(0, 3);
+        Vector3t vt = state.middleRows(3, 3);
 
+        // propagate the position
+        next_state.middleRows(0, 3) = pt + vt * dt;
+
+        // propagate the linear velocity
+        Vector3t g(0.0f, 0.0f, 9.80665f);
+        Vector3t acc_ = raw_acc - acc_bias;
+        Vector3t acc = qt * acc_;
+        next_state.middleRows(3, 3) = vt + (acc - g) * dt;
+
+        // propagate the orientation based on gyro measurements
+        Quaterniont dq(1, gyro[0] * dt / 2, gyro[1] * dt / 2, gyro[2] * dt / 2);
+        dq.normalize();
+        Quaterniont qt_ = (qt * dq).normalized();
+        next_state.middleRows(6, 4) << qt_.w(), qt_.x(), qt_.y(), qt_.z();
+    }
+
+    // propagate imu biases
+    next_state.middleRows(10, 3) = state.middleRows(10, 3);
+    next_state.middleRows(13, 3) = state.middleRows(13, 3);
     return next_state;
   }
 
@@ -100,6 +124,7 @@ public:
   }
 
   double dt;
+  bool enable_agv_mode;
 };
 
 }
