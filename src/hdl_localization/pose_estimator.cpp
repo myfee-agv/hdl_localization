@@ -16,7 +16,8 @@ namespace hdl_localization {
  * @param cool_time_duration  during "cool time", prediction is not performed
  */
 PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const ros::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, MeasurementNoise measurement_noise_param, ProcessNoise process_noise_param, double cool_time_duration)
-    : init_stamp(stamp), registration(registration), cool_time_duration(cool_time_duration) {
+    : init_stamp(stamp), registration(registration), cool_time_duration(cool_time_duration), force_2d(true), robot_constant_z(0.00f) {
+
   last_observation = Eigen::Matrix4f::Identity();
   last_observation.block<3, 3>(0, 0) = quat.toRotationMatrix();
   last_observation.block<3, 1>(0, 3) = pos;
@@ -41,8 +42,71 @@ PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registratio
 
   Eigen::MatrixXf cov = Eigen::MatrixXf::Identity(16, 16) * 0.01;
 
+  if(force_2d) {
+    force_two_d_process_noise(process_noise);
+    force_two_d_measurement_noise(measurement_noise);
+    force_two_d_cov(cov);
+    force_two_d_mean(mean);
+    force_two_d_last_observation(last_observation);
+  }
+
   PoseSystem system;
   ukf.reset(new kkl::alg::UnscentedKalmanFilterX<float, PoseSystem>(system, 16, 6, 7, process_noise, measurement_noise, mean, cov));
+}
+
+void PoseEstimator::force_two_d_process_noise(Eigen::MatrixXf& entity) {
+    entity(2, 2) = 0.000001; // position z
+    entity(5, 5) = 0.000001; // velocity z
+    entity(7, 7) = 0.000001; // roll
+    entity(8, 8) = 0.000001; // pitch
+    entity(12, 12) = 0.000001; // acceleration z
+    entity(13, 13) = 0.000001; // angular velocity roll
+    entity(14, 14) = 0.000001; // angular velocity pitch
+}
+
+void PoseEstimator::force_two_d_measurement_noise(Eigen::MatrixXf& entity){
+    entity(2) = 0.000001; // position z
+    entity(4) = 0.000001; // roll
+    entity(5) = 0.000001; // pitch
+}
+
+void PoseEstimator::force_two_d_cov(Eigen::MatrixXf& entity){
+    entity(2, 2) = 0.000001; // position z
+    entity(5, 5) = 0.000001; // velocity z
+    entity(7, 7) = 0.000001; // roll
+    entity(8, 8) = 0.000001; // pitch
+    entity(12, 12) = 0.000001; // acceleration z
+    entity(13, 13) = 0.000001; // angular velocity roll
+    entity(14, 14) = 0.000001; // angular velocity pitch
+}
+
+void PoseEstimator::force_two_d_mean(Eigen::VectorXf& entity) {
+    entity(5) = 0.0f; // velocity z
+    entity(7) = 0.0f; // roll
+    entity(8) = 0.0f; // pitch
+    entity(12) = 0.0f; // acceleration z
+    entity(13) = 0.0f; // angular velocity roll
+    entity(14) = 0.0f; // angular velocity pitch
+}
+
+void PoseEstimator::force_two_d_predict_odom(Eigen::VectorXf& entity) {
+  entity(2) = 0.0f; // delta position z
+  entity(4) = 0.0f; // delta roll
+  entity(5) = 0.0f; // delta pitch
+}
+
+void PoseEstimator::force_two_d_imu(Eigen::VectorXf& entity) {
+  entity(2) = 9.80665f; // acceleration z
+  entity(3) = 0.0f; // velocity roll
+  entity(4) = 0.0f; // velocity pitch
+}
+
+void PoseEstimator::force_two_d_last_observation(Eigen::Matrix4f& entity) {
+  Eigen::Vector3f euler = entity.block<3, 3>(0, 0).eulerAngles(0, 1, 2);
+  Eigen::Matrix3f yaw_rot_mat;
+  yaw_rot_mat = Eigen::AngleAxisf(euler.z(), Eigen::Vector3f::UnitZ());
+  entity.block<3, 3>(0, 0) = yaw_rot_mat;
+  entity(3, 3) = robot_constant_z;  // position z
 }
 
 PoseEstimator::~PoseEstimator() {}
@@ -64,7 +128,6 @@ void PoseEstimator::predict(const ros::Time& stamp) {
 
   ukf->setProcessNoiseCov(process_noise * dt);
   ukf->system.dt = dt;
-
   ukf->predict();
 }
 
@@ -83,13 +146,16 @@ void PoseEstimator::predict(const ros::Time& stamp, const Eigen::Vector3f& acc, 
   double dt = (stamp - prev_stamp).toSec();
   prev_stamp = stamp;
 
-  ukf->setProcessNoiseCov(process_noise * dt);
-  ukf->system.dt = dt;
-
   Eigen::VectorXf control(6);
   control.head<3>() = acc;
   control.tail<3>() = gyro;
 
+  if(force_2d){
+    force_two_d_imu(control);
+  }
+
+  ukf->setProcessNoiseCov(process_noise * dt);
+  ukf->system.dt = dt;
   ukf->predict(control);
 }
 
@@ -123,6 +189,10 @@ void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
   Eigen::MatrixXf process_noise = Eigen::MatrixXf::Identity(7, 7);
   process_noise.topLeftCorner(3, 3) = Eigen::Matrix3f::Identity() * odom_delta.block<3, 1>(0, 3).norm() + Eigen::Matrix3f::Identity() * 1e-3;
   process_noise.bottomRightCorner(4, 4) = Eigen::Matrix4f::Identity() * (1 - std::abs(quat.w())) + Eigen::Matrix4f::Identity() * 1e-3;
+
+  if(force_2d){
+    force_two_d_predict_odom(control);
+  }
 
   odom_ukf->setProcessNoiseCov(process_noise);
   odom_ukf->predict(control);
@@ -191,10 +261,12 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const ros::Ti
   observation.middleRows(3, 4) = Eigen::Vector4f(q.w(), q.x(), q.y(), q.z());
   last_observation = trans;
 
-  wo_pred_error = no_guess.inverse() * registration->getFinalTransformation();
-
+  Eigen::Matrix4f no_guess_trans = registration->getFinalTransformation();
+  wo_pred_error = no_guess.inverse() * no_guess_trans;
   ukf->correct(observation);
-  imu_pred_error = imu_guess.inverse() * registration->getFinalTransformation();
+
+  Eigen::Matrix4f imu_guess_trans = registration->getFinalTransformation();
+  imu_pred_error = imu_guess.inverse() * imu_guess_trans;
 
   if(odom_ukf) {
     if (observation.tail<4>().dot(odom_ukf->mean.tail<4>()) < 0.0) {
@@ -202,7 +274,10 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const ros::Ti
     }
 
     odom_ukf->correct(observation);
-    odom_pred_error = odom_guess.inverse() * registration->getFinalTransformation();
+    ukf->correct(observation);
+
+    Eigen::Matrix4f odom_guess_trans = registration->getFinalTransformation();
+    odom_pred_error = odom_guess.inverse() * odom_guess_trans;
   }
 
   return aligned;
@@ -214,15 +289,27 @@ ros::Time PoseEstimator::last_correction_time() const {
 }
 
 Eigen::Vector3f PoseEstimator::pos() const {
-  return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], ukf->mean[2]);
+  if (force_2d) {
+    return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], robot_constant_z);
+  } else {
+    return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], ukf->mean[2]);
+  }
 }
 
 Eigen::Vector3f PoseEstimator::vel() const {
-  return Eigen::Vector3f(ukf->mean[3], ukf->mean[4], ukf->mean[5]);
+  if (force_2d) {
+    return Eigen::Vector3f(ukf->mean[3], ukf->mean[4], 0.0f);
+  } else {
+    return Eigen::Vector3f(ukf->mean[3], ukf->mean[4], ukf->mean[5]);
+  }
 }
 
 Eigen::Quaternionf PoseEstimator::quat() const {
-  return Eigen::Quaternionf(ukf->mean[6], ukf->mean[7], ukf->mean[8], ukf->mean[9]).normalized();
+  if (force_2d) {
+    return Eigen::Quaternionf(ukf->mean[6], 0.0f, 0.0f, ukf->mean[9]).normalized();
+  } else {
+    return Eigen::Quaternionf(ukf->mean[6], ukf->mean[7], ukf->mean[8], ukf->mean[9]).normalized();
+  }
 }
 
 Eigen::Matrix4f PoseEstimator::matrix() const {
@@ -233,11 +320,19 @@ Eigen::Matrix4f PoseEstimator::matrix() const {
 }
 
 Eigen::Vector3f PoseEstimator::odom_pos() const {
-  return Eigen::Vector3f(odom_ukf->mean[0], odom_ukf->mean[1], odom_ukf->mean[2]);
+  if (force_2d) {
+    return Eigen::Vector3f(odom_ukf->mean[0], odom_ukf->mean[1], 0.0f);
+  } else {
+    return Eigen::Vector3f(odom_ukf->mean[0], odom_ukf->mean[1], odom_ukf->mean[2]);
+  }
 }
 
 Eigen::Quaternionf PoseEstimator::odom_quat() const {
-  return Eigen::Quaternionf(odom_ukf->mean[3], odom_ukf->mean[4], odom_ukf->mean[5], odom_ukf->mean[6]).normalized();
+  if (force_2d) {
+    return Eigen::Quaternionf(odom_ukf->mean[3], 0.0f, 0.0f, odom_ukf->mean[6]).normalized();
+  } else {
+    return Eigen::Quaternionf(odom_ukf->mean[3], odom_ukf->mean[4], odom_ukf->mean[5], odom_ukf->mean[6]).normalized();
+  }
 }
 
 Eigen::Matrix4f PoseEstimator::odom_matrix() const {

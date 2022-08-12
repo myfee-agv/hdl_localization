@@ -96,6 +96,8 @@ private:
   ros::Time prev_stamp;             // when the estimator was updated last time
   ros::Time last_correction_stamp;  // when the estimator performed the correction step
   double cool_time_duration;        //
+  bool force_2d;                    // it sets the 3D variables to 0, and gives those variables tiny variances
+  float robot_constant_z;
 
   Eigen::MatrixXf process_noise;
   std::unique_ptr<kkl::alg::UnscentedKalmanFilterX<float, PoseSystem>> ukf;
@@ -107,7 +109,15 @@ private:
   boost::optional<Eigen::Matrix4f> odom_pred_error;
 
   pcl::Registration<PointT, PointT>::Ptr registration;
-  };
+
+  void force_two_d_process_noise(Eigen::MatrixXf& entity);
+  void force_two_d_measurement_noise(Eigen::MatrixXf& entity);
+  void force_two_d_cov(Eigen::MatrixXf& entity);
+  void force_two_d_mean(Eigen::VectorXf& entity);
+  void force_two_d_predict_odom(Eigen::VectorXf& entity);
+  void force_two_d_imu(Eigen::VectorXf& entity);
+  void force_two_d_last_observation(Eigen::Matrix4f& entity);
+};
 
 }  // namespace hdl_localization
 
