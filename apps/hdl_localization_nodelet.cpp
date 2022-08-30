@@ -483,7 +483,7 @@ private:
     status.header = header;
 
     status.has_converged = registration->hasConverged();
-    status.matching_error = registration->getFitnessScore();
+    status.matching_error = registration->getFitnessScore(1.0);
 
     const double max_correspondence_dist = 0.5;
 
